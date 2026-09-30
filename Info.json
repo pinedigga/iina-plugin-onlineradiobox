@@ -1,0 +1,28 @@
+{
+  "name": "Online Radio Box",
+  "identifier": "io.pinedigga.onlineradiobox",
+  "version": "1.4.0",
+  "ghRepo": "pinedigga/iina-plugin-onlineradiobox",
+  "ghVersion": 2,
+  "description": "Play web radio stations from onlineradiobox.com in IINA, with your own favourites list.",
+  "author": {
+    "name": "Michalis Papoulakos",
+    "url": "https://github.com/pinedigga"
+  },
+  "entry": "src/main.js",
+  "globalEntry": "src/global.js",
+  "permissions": [
+    "show-osd",
+    "network-request",
+    "file-system"
+  ],
+  "allowedDomains": [
+    "*"
+  ],
+  "preferencesPage": "pref.html",
+  "preferenceDefaults": {
+    "favorites": "[]",
+    "open_on_launch": false,
+    "seeded": 0
+  }
+}

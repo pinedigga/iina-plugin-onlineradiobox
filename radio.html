@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Online Radio Box</title>
+  <style>
+    :root {
+      --bg: #f6f6f7; --card: #fff; --text: #1d1d1f; --muted: #86868b;
+      --line: rgba(0,0,0,.08); --accent: #e0342b; --hover: rgba(0,0,0,.04);
+      --ok: #1f8f4e;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1e1e20; --card: #2a2a2d; --text: #f2f2f4; --muted: #98989d;
+        --line: rgba(255,255,255,.08); --accent: #ff5a4f; --hover: rgba(255,255,255,.05);
+        --ok: #4cd07d;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg); color: var(--text);
+      font: 13px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+      display: flex; flex-direction: column; user-select: none; -webkit-user-select: none;
+    }
+    header { padding: 10px 12px 0; }
+    .tabs { display: flex; gap: 4px; background: var(--hover); border-radius: 8px; padding: 3px; }
+    .tab {
+      flex: 1; border: 0; background: transparent; color: var(--text); font: inherit;
+      padding: 5px 0; border-radius: 6px; cursor: pointer;
+    }
+    .tab.active { background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,.15); font-weight: 600; }
+    main { flex: 1; overflow-y: auto; padding: 10px 12px 12px; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .list { background: var(--card); border-radius: 10px; overflow: hidden; }
+    .row {
+      display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+      border-bottom: 1px solid var(--line); cursor: pointer;
+    }
+    .row:last-child { border-bottom: 0; }
+    .row:hover { background: var(--hover); }
+    .row.playing .name { color: var(--accent); font-weight: 600; }
+    .logo {
+      width: 36px; height: 36px; border-radius: 7px; flex: none; object-fit: cover;
+      background: var(--hover);
+    }
+    .meta { flex: 1; min-width: 0; }
+    .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .actions { display: flex; gap: 2px; opacity: 0; }
+    .row:hover .actions, .row.playing .actions { opacity: 1; }
+    .icon {
+      border: 0; background: transparent; color: var(--muted); cursor: pointer;
+      font-size: 14px; width: 24px; height: 24px; border-radius: 5px; padding: 0;
+    }
+    .icon:hover { background: var(--hover); color: var(--text); }
+    .icon.fav { color: var(--accent); }
+    .eq { display: none; width: 14px; height: 12px; align-items: flex-end; gap: 2px; }
+    .row.playing .eq { display: flex; }
+    .eq i { display: block; width: 3px; background: var(--accent); animation: eq 1s infinite ease-in-out; }
+    .eq i:nth-child(2) { animation-delay: .2s; } .eq i:nth-child(3) { animation-delay: .4s; }
+    @keyframes eq { 0%,100% { height: 3px; } 50% { height: 12px; } }
+    .empty { color: var(--muted); text-align: center; padding: 30px 10px; line-height: 1.5; }
+    input[type=search], textarea {
+      width: 100%; font: inherit; color: var(--text); background: var(--card);
+      border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; outline: none;
+    }
+    input[type=search]:focus, textarea:focus { border-color: var(--accent); }
+    textarea { height: 150px; resize: vertical; user-select: text; -webkit-user-select: text; }
+    .searchbar { margin-bottom: 10px; }
+    .btn {
+      font: inherit; border: 0; border-radius: 7px; padding: 6px 14px; cursor: pointer;
+      background: var(--accent); color: #fff; font-weight: 600;
+    }
+    .btn.secondary { background: var(--hover); color: var(--text); font-weight: 400; }
+    .help { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0 0 8px; }
+    .help code { font-size: 11px; }
+    footer {
+      display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+      border-top: 1px solid var(--line); background: var(--card);
+    }
+    footer .now { flex: 1; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    footer .now b { color: var(--text); font-weight: 600; }
+    #toast {
+      position: fixed; left: 12px; right: 12px; bottom: 54px; padding: 8px 10px;
+      border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12px;
+      opacity: 0; transform: translateY(6px); transition: .2s; pointer-events: none;
+    }
+    #toast.show { opacity: .95; transform: none; }
+    #toast.error { background: var(--accent); color: #fff; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="tabs">
+      <button class="tab active" data-tab="favs">Favourites</button>
+      <button class="tab" data-tab="search">Search</button>
+      <button class="tab" data-tab="import">Import</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel active" id="favs">
+      <div class="list" id="favList"></div>
+    </section>
+
+    <section class="panel" id="search">
+      <div class="searchbar"><input type="search" id="q" placeholder="Search onlineradiobox.com…" /></div>
+      <div class="list" id="results"></div>
+    </section>
+
+    <section class="panel" id="import">
+      <p class="help">
+        Paste station links from onlineradiobox.com (e.g. your Favorites page, one link per station),
+        or station ids like <code>us.dublab</code>, <code>gr.kosmos</code>. Separate with spaces, commas or new lines.
+      </p>
+      <textarea id="importText" placeholder="https://onlineradiobox.com/us/dublab/&#10;gr.kosmos"></textarea>
+      <div style="margin-top:8px; display:flex; gap:8px;">
+        <button class="btn" id="importBtn">Add to favourites</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="now" id="now">Nothing playing</div>
+    <button class="btn secondary" id="stopBtn" style="display:none">Stop</button>
+  </footer>
+  <div id="toast"></div>
+
+  <script>
+    const state = { favorites: [], current: null, results: [] };
+    const $ = (s) => document.querySelector(s);
+
+    function esc(s) {
+      return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+    const isFav = (id) => state.favorites.some((f) => f.id === id);
+    const country = (id) => (id.split(".")[0] || "").toUpperCase();
+
+    function row(st, mode) {
+      const playing = state.current === st.id;
+      const fav = isFav(st.id);
+      const actions = mode === "fav"
+        ? `<button class="icon" data-act="up" title="Move up">↑</button>
+           <button class="icon" data-act="down" title="Move down">↓</button>
+           <button class="icon" data-act="remove" title="Remove from favourites">✕</button>`
+        : `<button class="icon ${fav ? "fav" : ""}" data-act="${fav ? "remove" : "add"}" title="${fav ? "Remove from" : "Add to"} favourites">${fav ? "★" : "☆"}</button>`;
+      return `<div class="row ${playing ? "playing" : ""}" data-id="${esc(st.id)}">
+        ${st.img ? `<img class="logo" src="${esc(st.img)}" alt="" onerror="this.style.visibility='hidden'">` : `<div class="logo"></div>`}
+        <div class="meta"><div class="name">${esc(st.name)}</div><div class="sub">${esc(country(st.id))} · ${esc(st.id)}</div></div>
+        <span class="eq"><i></i><i></i><i></i></span>
+        <div class="actions">${actions}</div>
+      </div>`;
+    }
+
+    function render() {
+      const favList = $("#favList");
+      favList.innerHTML = state.favorites.length
+        ? state.favorites.map((s) => row(s, "fav")).join("")
+        : `<div class="empty">No favourites yet.<br>Find stations in <b>Search</b> and tap ☆,<br>or paste links in <b>Import</b>.</div>`;
+      favList.style.background = state.favorites.length ? "" : "transparent";
+
+      const res = $("#results");
+      if (state.results.length) {
+        res.innerHTML = state.results.map((s) => row(s, "search")).join("");
+        res.style.background = "";
+      } else {
+        res.style.background = "transparent";
+      }
+
+      const cur = state.favorites.find((f) => f.id === state.current) || state.results.find((f) => f.id === state.current);
+      $("#now").innerHTML = state.current ? `Playing <b>${esc(cur ? cur.name : state.current)}</b>` : "Nothing playing";
+      $("#stopBtn").style.display = state.current ? "" : "none";
+    }
+
+    function stationById(id) {
+      return state.results.find((s) => s.id === id) || state.favorites.find((s) => s.id === id);
+    }
+
+    function onListClick(e) {
+      const r = e.target.closest(".row");
+      if (!r) return;
+      const id = r.dataset.id;
+      const act = e.target.closest("[data-act]");
+      if (!act) { iina.postMessage("play", stationById(id) || { id }); return; }
+      e.stopPropagation();
+      const a = act.dataset.act;
+      if (a === "add") iina.postMessage("addFavorite", stationById(id));
+      else if (a === "remove") iina.postMessage("removeFavorite", { id });
+      else if (a === "up") iina.postMessage("moveFavorite", { id, delta: -1 });
+      else if (a === "down") iina.postMessage("moveFavorite", { id, delta: 1 });
+    }
+    $("#favList").addEventListener("click", onListClick);
+    $("#results").addEventListener("click", onListClick);
+
+    document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
+      document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === t.dataset.tab));
+      if (t.dataset.tab === "search") $("#q").focus();
+    }));
+
+    let searchTimer;
+    $("#q").addEventListener("input", (e) => {
+      clearTimeout(searchTimer);
+      const q = e.target.value.trim();
+      if (q.length < 2) { state.results = []; $("#results").innerHTML = ""; render(); return; }
+      searchTimer = setTimeout(() => {
+        $("#results").innerHTML = `<div class="empty">Searching…</div>`;
+        iina.postMessage("search", { query: q });
+      }, 400);
+    });
+
+    $("#importBtn").addEventListener("click", () => {
+      const text = $("#importText").value;
+      if (!text.trim()) return;
+      $("#importBtn").textContent = "Adding…";
+      iina.postMessage("import", { text });
+    });
+
+    $("#stopBtn").addEventListener("click", () => iina.postMessage("stop", {}));
+
+    let toastTimer;
+    function toast(text, kind) {
+      const t = $("#toast");
+      t.textContent = text;
+      t.className = "show" + (kind === "error" ? " error" : "");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => (t.className = ""), 3500);
+    }
+
+    iina.onMessage("state", (data) => {
+      state.favorites = data.favorites || [];
+      state.current = data.current || null;
+      render();
+    });
+    iina.onMessage("results", (data) => {
+      if (data.query !== $("#q").value.trim()) return;
+      state.results = data.results || [];
+      render();
+      if (!state.results.length) {
+        $("#results").innerHTML = `<div class="empty">${data.error ? "Search failed — check your connection." : "No stations found."}</div>`;
+      }
+    });
+    iina.onMessage("notify", (data) => {
+      toast(data.text, data.kind);
+      $("#importBtn").textContent = "Add to favourites";
+      if (data.kind === "ok") $("#importText").value = "";
+    });
+
+    render();
+    iina.postMessage("ready", {});
+  </script>
+</body>
+</html>
