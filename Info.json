@@ -1,9 +1,9 @@
 {
   "name": "Online Radio Box",
   "identifier": "io.pinedigga.onlineradiobox",
-  "version": "1.4.0",
+  "version": "1.7.0",
   "ghRepo": "pinedigga/iina-plugin-onlineradiobox",
-  "ghVersion": 2,
+  "ghVersion": 5,
   "description": "Play web radio stations from onlineradiobox.com in IINA, with your own favourites list.",
   "author": {
     "name": "Michalis Papoulakos",
