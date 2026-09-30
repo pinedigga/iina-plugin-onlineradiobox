@@ -4,12 +4,21 @@
 
 const { console, global, menu, standaloneWindow, http, preferences } = iina;
 
+// Defensive: keep every message callback referenced from JS, so IINA 1.4.x
+// cannot lose it to garbage collection.
+// Every callback is kept alive here.
+const KEEP_ALIVE = [];
+function keep(fn) {
+  KEEP_ALIVE.push(fn);
+  if (KEEP_ALIVE.length > 200) KEEP_ALIVE.splice(0, 100);
+  return fn;
+}
+
 const BASE = "https://onlineradiobox.com";
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
 
 let radioPlayerId = null; // id returned by global.createPlayerInstance
-let acked = false; // set synchronously by the radio window when it receives "play"
 let current = null; // station currently playing
 let windowReady = false;
 
@@ -330,14 +339,13 @@ function extractIds(text) {
 function play(station) {
   current = station;
   const payload = { url: station.stream, title: station.name };
-  // Reuse the radio window whenever it still answers. Messages are delivered
-  // synchronously, so the "ack" arrives before postMessage returns.
+  // Always reuse the radio player once it exists. Messages from the global
+  // entry to the player are reliable in IINA 1.4.x (the reverse direction is
+  // not, so we don't wait for a reply). If its window was closed, the player
+  // reopens it when it receives the next station.
   if (radioPlayerId !== null) {
-    acked = false;
     global.postMessage(radioPlayerId, "play", payload);
-    if (!acked) radioPlayerId = null;
-  }
-  if (radioPlayerId === null) {
+  } else {
     radioPlayerId = global.createPlayerInstance({
       url: station.stream,
       label: "onlineradiobox",
@@ -399,9 +407,7 @@ function refreshStation(id) {
 }
 
 // messages from the radio player window (main entry)
-global.onMessage("ack", () => {
-  acked = true;
-});
+
 
 // ---------- station window ----------
 
@@ -436,14 +442,14 @@ function showWindow() {
 
   // loadFile() clears message listeners, so (re)install them every time
   {
-    standaloneWindow.onMessage("ready", () => {
+    standaloneWindow.onMessage("ready", keep(() => {
       windowReady = true;
       pushState();
-    });
+    }));
 
-    standaloneWindow.onMessage("play", (st) => onMain(() => playById(st.id, st)));
+    standaloneWindow.onMessage("play", keep((st) => onMain(() => playById(st.id, st))));
 
-    standaloneWindow.onMessage("search", async ({ query }) => {
+    standaloneWindow.onMessage("search", keep(async ({ query }) => {
       try {
         const results = await search(query);
         onMain(() => standaloneWindow.postMessage("results", safe({ query, results })));
@@ -451,28 +457,28 @@ function showWindow() {
         console.error(String(e));
         onMain(() => standaloneWindow.postMessage("results", { query, results: [], error: true }));
       }
-    });
+    }));
 
-    standaloneWindow.onMessage("addFavorite", (st) => {
+    standaloneWindow.onMessage("addFavorite", keep((st) => {
       const list = loadFavorites();
       if (!list.some((f) => f.id === st.id)) list.push(st);
       saveFavorites(list);
-    });
+    }));
 
-    standaloneWindow.onMessage("removeFavorite", ({ id }) => {
+    standaloneWindow.onMessage("removeFavorite", keep(({ id }) => {
       saveFavorites(loadFavorites().filter((f) => f.id !== id));
-    });
+    }));
 
-    standaloneWindow.onMessage("moveFavorite", ({ id, delta }) => {
+    standaloneWindow.onMessage("moveFavorite", keep(({ id, delta }) => {
       const list = loadFavorites();
       const i = list.findIndex((f) => f.id === id);
       const j = i + delta;
       if (i < 0 || j < 0 || j >= list.length) return;
       [list[i], list[j]] = [list[j], list[i]];
       saveFavorites(list);
-    });
+    }));
 
-    standaloneWindow.onMessage("import", async ({ text }) => {
+    standaloneWindow.onMessage("import", keep(async ({ text }) => {
       const ids = extractIds(text);
       if (!ids.length) {
         notify("error", "No stations found in what you pasted.");
@@ -501,14 +507,14 @@ function showWindow() {
             (failed.length ? ` — not found: ${failed.join(", ")}` : ""),
         );
       });
-    });
+    }));
 
-    standaloneWindow.onMessage("stop", () => {
+    standaloneWindow.onMessage("stop", keep(() => {
       if (radioPlayerId !== null) global.postMessage(radioPlayerId, "stop", {});
       current = null;
       pushState();
       rebuildMenu();
-    });
+    }));
   }
 
   standaloneWindow.open();

@@ -4,6 +4,13 @@
 
 const { core, global, event, mpv } = iina;
 
+// Defensive: keep callbacks referenced so they are never garbage-collected.
+const KEEP_ALIVE = [];
+function keep(fn) {
+  KEEP_ALIVE.push(fn);
+  return fn;
+}
+
 const isRadioWindow = global && global.getLabel && global.getLabel() === "onlineradiobox";
 
 if (isRadioWindow) {
@@ -18,24 +25,31 @@ if (isRadioWindow) {
     }
   }
 
-  global.onMessage("title", ({ title }) => {
+  global.onMessage("title", keep(({ title }) => {
     pendingTitle = title;
     applyTitle();
-  });
+  }));
 
-  global.onMessage("play", ({ url, title }) => {
-    global.postMessage("ack", {});
+  global.onMessage("play", keep(({ url, title }) => {
     pendingTitle = title;
     applyTitle();
-    core.open(url);
+    if (core.status.idle) {
+      // nothing loaded (first stream, or the window was closed): open normally,
+      // which also brings the player window back
+      core.open(url);
+    } else {
+      // already playing: swap the stream inside the same window. core.open()
+      // would go through IINA's "Open URL" loading screen and reshuffle windows
+      // (music mode), so talk to mpv directly instead.
+      mpv.command("loadfile", [url, "replace"]);
+    }
     core.osd("📻 " + title);
-  });
+  }));
 
-  global.onMessage("stop", () => core.stop());
+  global.onMessage("stop", keep(() => core.stop()));
 
-  event.on("iina.file-started", () => applyTitle());
+  event.on("iina.file-started", keep(() => applyTitle()));
 
-  // No "window closed" handling on purpose: IINA can close/reopen the main
-  // window (e.g. music mode for audio), and the global entry now checks that
-  // this window is alive with an "ack" before reusing it.
+  // No "window closed" handling on purpose: IINA closes/reopens the main
+  // window around music mode, and the global entry always reuses this player.
 }
